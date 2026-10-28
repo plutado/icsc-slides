@@ -272,14 +272,26 @@ body.immersive .exitBtn { display: block; }
   function relayout() { setTimeout(function () { Reveal.layout(); }, 50); setTimeout(function () { Reveal.layout(); }, 400); }
   // Bars-only full screen: hides the page's own header and footer, never asks the browser for full screen
   // (so the browser's "how to exit" notice never appears). The slide gets a slight base zoom while bars are hidden.
-  function enterImmersive() { document.body.classList.add("immersive"); relayout(); setTimeout(resetZoom, 120); setTimeout(resetZoom, 450); }
-  function exitImmersive() { document.body.classList.remove("immersive"); relayout(); setTimeout(resetZoom, 120); setTimeout(resetZoom, 450); }
+  function enterImmersive() {
+    document.body.classList.add("immersive");
+    var el = document.documentElement;
+    var req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req) { try { var p = req.call(el); if (p && p.catch) p.catch(function () {}); } catch (e) {} }
+    relayout(); setTimeout(resetZoom, 120); setTimeout(resetZoom, 450); setTimeout(resetZoom, 900);
+  }
+  function exitImmersive() {
+    document.body.classList.remove("immersive");
+    var isFs = document.fullscreenElement || document.webkitFullscreenElement;
+    var ex = document.exitFullscreen || document.webkitExitFullscreen;
+    if (isFs && ex) { try { var p = ex.call(document); if (p && p.catch) p.catch(function () {}); } catch (e) {} }
+    relayout(); setTimeout(resetZoom, 120); setTimeout(resetZoom, 450);
+  }
   fsBtn.addEventListener("click", enterImmersive);
   exitBtn.addEventListener("click", exitImmersive);
   ["fullscreenchange", "webkitfullscreenchange"].forEach(function (ev) {
     document.addEventListener(ev, function () {
       var isFs = document.fullscreenElement || document.webkitFullscreenElement;
-      if (!isFs && document.body.classList.contains("immersive")) { document.body.classList.remove("immersive"); relayout(); }
+      if (!isFs && document.body.classList.contains("immersive")) { document.body.classList.remove("immersive"); relayout(); setTimeout(resetZoom, 120); setTimeout(resetZoom, 450); }
     });
   });
   window.addEventListener("orientationchange", relayout);
