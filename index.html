@@ -366,6 +366,13 @@ body.immersive .exitBtn { display: block; }
   deckEl.addEventListener("touchcancel", function () { pinch = null; pan = null; }, { capture: true });
   deckEl.addEventListener("dblclick", function (e) { var el = curImg(); if (!el) return; if (Z.s > 1) resetZoom(); else zoomAbout(el, { x: e.clientX, y: e.clientY }, 2.5); });
   deckEl.addEventListener("wheel", function (e) { if (!e.ctrlKey) return; var el = curImg(); if (!el) return; e.preventDefault(); zoomAbout(el, { x: e.clientX, y: e.clientY }, Z.s * (e.deltaY < 0 ? 1.15 : 1 / 1.15)); }, { passive: false });
+  // reveal.js navigates from pointer events, so keep them away from it while pinching or zoomed
+  var activePtrs = 0;
+  deckEl.addEventListener("pointerdown", function (e) { if (e.pointerType === "touch") activePtrs++; if (activePtrs >= 2 || Z.s > 1) e.stopPropagation(); }, { capture: true });
+  deckEl.addEventListener("pointermove", function (e) { if (e.pointerType === "touch" && (activePtrs >= 2 || Z.s > 1 || pinch)) e.stopPropagation(); }, { capture: true });
+  ["pointerup", "pointercancel"].forEach(function (t) {
+    deckEl.addEventListener(t, function (e) { if (e.pointerType === "touch") activePtrs = Math.max(0, activePtrs - 1); if (Z.s > 1 || pinch) e.stopPropagation(); }, { capture: true });
+  });
   Reveal.on("slidechanged", resetZoom);
   window.addEventListener("resize", function () { if (Z.s > 1) resetZoom(); });
 
