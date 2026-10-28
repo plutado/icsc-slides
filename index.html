@@ -54,7 +54,11 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .deck { position: absolute; top: 44px; bottom: 60px; left: 0; right: 0; background: var(--stage); }
 .reveal { font-family: var(--body); color: var(--fg); }
 .reveal .slides section { padding: 0; }
-.reveal .slides section img { display: block; width: 1280px; height: 720px; max-width: none; background: #fff; box-shadow: 0 2px 14px rgba(0,0,0,.18); }
+.reveal .slides section img { display: block; width: 1280px; height: 720px; max-width: none; background: #fff; box-shadow: 0 2px 14px rgba(0,0,0,.18); transform-origin: 0 0; will-change: transform; }
+.reveal.embedded { touch-action: none; }
+.zoomHint { position: absolute; z-index: 13; left: 50%; transform: translateX(-50%); bottom: 70px; font-size: 12px; font-weight: 600; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; opacity: .85; pointer-events: none; display: none; }
+body.immersive .zoomHint { bottom: 16px; }
+body.zoomed .zoomHint { display: block; }
 .reveal .controls { color: var(--accent); }
 .reveal .progress { color: var(--accent); background: rgba(127,127,127,.25); }
 .section-tag {
@@ -114,6 +118,7 @@ body.immersive .exitBtn { display: block; }
   <div class="right"><div class="counter"><b id="cur">1</b> / 69</div><button class="fsBtn" id="fsBtn" type="button">Full screen</button></div>
 </div>
 <button class="exitBtn" id="exitBtn" type="button"><b id="cur2">1</b>/69 · Exit</button>
+<div class="zoomHint" id="zoomHint">Drag to pan · double-tap to reset</div>
 
 <div class="deck">
   <div class="reveal" id="deck">
@@ -202,7 +207,7 @@ body.immersive .exitBtn { display: block; }
   <div>
     <h2>Running order</h2>
     <ol id="sectionList"></ol>
-    <p>Swipe left or right to move through the slides. Turn your phone sideways or tap Full screen for a bigger view. On an iPhone, Safari's Share menu has "Add to Home Screen", which opens this without any browser bars. The panel is moderated live, so the presenter may be on a different slide than you.</p>
+    <p>Swipe left or right to move through the slides. Pinch to zoom in on a slide, drag to look around, and double-tap to reset. Turn your phone sideways or tap Full screen for a bigger view. On an iPhone, Safari's Share menu has "Add to Home Screen", which opens this without any browser bars. The panel is moderated live, so the presenter may be on a different slide than you.</p>
     <button class="close" id="closeBtn" type="button">Close</button>
   </div>
 </div>
@@ -292,6 +297,77 @@ body.immersive .exitBtn { display: block; }
   window.addEventListener("orientationchange", relayout);
   window.addEventListener("resize", relayout);
   Reveal.on("slidechanged", function (e) { cur2.textContent = e.indexh + 1; });
+
+  // Pinch to zoom on the current slide (two fingers), drag to pan while zoomed, double-tap to zoom in / reset.
+  var deckEl = document.querySelector(".deck");
+  var Z = { s: 1, tx: 0, ty: 0 }, MAXZ = 5, pinch = null, pan = null, lastTap = 0, moved = false;
+  function curImg() { var sl = Reveal.getCurrentSlide(); return sl ? sl.querySelector("img") : null; }
+  function applyZoom() {
+    var el = curImg(); if (!el) return;
+    el.style.transform = Z.s === 1 ? "" : "translate(" + Z.tx + "px," + Z.ty + "px) scale(" + Z.s + ")";
+    document.body.classList.toggle("zoomed", Z.s > 1);
+  }
+  function resetZoom() {
+    Z = { s: 1, tx: 0, ty: 0 };
+    var imgs = document.querySelectorAll(".reveal .slides section img");
+    for (var i = 0; i < imgs.length; i++) imgs[i].style.transform = "";
+    document.body.classList.remove("zoomed");
+  }
+  function clampZ(el) {
+    var w = el.offsetWidth, h = el.offsetHeight;
+    Z.tx = Math.min(0, Math.max(w - w * Z.s, Z.tx));
+    Z.ty = Math.min(0, Math.max(h - h * Z.s, Z.ty));
+  }
+  function baseOf(el) { var r = Reveal.getScale(), b = el.getBoundingClientRect(); return { x: b.left - Z.tx * r, y: b.top - Z.ty * r, r: r }; }
+  function dist(t) { var dx = t[0].clientX - t[1].clientX, dy = t[0].clientY - t[1].clientY; return Math.sqrt(dx * dx + dy * dy); }
+  function mid(t) { return { x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 }; }
+  function zoomAbout(el, m, newS) {
+    var b = baseOf(el);
+    var lx = (m.x - b.x) / b.r, ly = (m.y - b.y) / b.r;          // point under finger, in current transformed local coords
+    var px = (lx - Z.tx) / Z.s, py = (ly - Z.ty) / Z.s;          // same point in untransformed image coords
+    Z.s = Math.min(MAXZ, Math.max(1, newS));
+    Z.tx = lx - px * Z.s; Z.ty = ly - py * Z.s;
+    if (Z.s === 1) { Z.tx = 0; Z.ty = 0; }
+    clampZ(el); applyZoom();
+  }
+  deckEl.addEventListener("touchstart", function (e) {
+    var el = curImg(); if (!el) return;
+    if (e.touches.length === 2) {
+      pinch = { d0: dist(e.touches), s0: Z.s }; pan = null;
+      e.stopPropagation();
+    } else if (e.touches.length === 1) {
+      var now = Date.now(); moved = false;
+      if (now - lastTap < 300) {
+        lastTap = 0;
+        if (Z.s > 1) resetZoom(); else zoomAbout(el, { x: e.touches[0].clientX, y: e.touches[0].clientY }, 2.5);
+        e.preventDefault(); e.stopPropagation(); return;
+      }
+      lastTap = now;
+      if (Z.s > 1) { pan = { x: e.touches[0].clientX, y: e.touches[0].clientY, tx0: Z.tx, ty0: Z.ty, r: Reveal.getScale() }; e.stopPropagation(); }
+    }
+  }, { capture: true, passive: false });
+  deckEl.addEventListener("touchmove", function (e) {
+    var el = curImg(); if (!el) return;
+    if (pinch && e.touches.length === 2) {
+      zoomAbout(el, mid(e.touches), pinch.s0 * dist(e.touches) / pinch.d0);
+      e.preventDefault(); e.stopPropagation();
+    } else if (pan && e.touches.length === 1 && Z.s > 1) {
+      Z.tx = pan.tx0 + (e.touches[0].clientX - pan.x) / pan.r;
+      Z.ty = pan.ty0 + (e.touches[0].clientY - pan.y) / pan.r;
+      clampZ(el); applyZoom(); moved = true;
+      e.preventDefault(); e.stopPropagation();
+    }
+  }, { capture: true, passive: false });
+  deckEl.addEventListener("touchend", function (e) {
+    if (e.touches.length < 2 && pinch) { pinch = null; if (Z.s > 1 && e.touches.length === 1) pan = { x: e.touches[0].clientX, y: e.touches[0].clientY, tx0: Z.tx, ty0: Z.ty, r: Reveal.getScale() }; e.stopPropagation(); }
+    if (e.touches.length === 0) pan = null;
+    if (Z.s > 1) e.stopPropagation();
+  }, { capture: true, passive: false });
+  deckEl.addEventListener("touchcancel", function () { pinch = null; pan = null; }, { capture: true });
+  deckEl.addEventListener("dblclick", function (e) { var el = curImg(); if (!el) return; if (Z.s > 1) resetZoom(); else zoomAbout(el, { x: e.clientX, y: e.clientY }, 2.5); });
+  deckEl.addEventListener("wheel", function (e) { if (!e.ctrlKey) return; var el = curImg(); if (!el) return; e.preventDefault(); zoomAbout(el, { x: e.clientX, y: e.clientY }, Z.s * (e.deltaY < 0 ? 1.15 : 1 / 1.15)); }, { passive: false });
+  Reveal.on("slidechanged", resetZoom);
+  window.addEventListener("resize", function () { if (Z.s > 1) resetZoom(); });
 
   prevBtn.addEventListener("click", function () { Reveal.prev(); });
   nextBtn.addEventListener("click", function () { Reveal.next(); });
